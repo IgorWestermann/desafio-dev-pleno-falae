@@ -1,0 +1,36 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Status {
+  pending
+  processing
+  completed
+  failed
+}
+
+model Review {
+  id          String    @id @default(uuid())
+  externalId  String
+  companyId   String
+  rating      Int
+  comment     String
+  status      Status    @default(pending)
+  createdAt   DateTime  @default(now())
+  analysis    Json?
+  attempts    Int       @default(0)
+  processedAt DateTime?
+  lastError   String?
+
+  @@unique([companyId, externalId])
+}

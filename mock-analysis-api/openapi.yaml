@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  title: Falaê! Mock Review Analysis API
+  version: 1.0.0
+  description: API fake do Falaê utilizada no desafio técnico de processamento assíncrono de avaliações.
+servers:
+  - url: http://localhost:4000
+    description: Execução local
+paths:
+  /health:
+    get:
+      summary: Verifica se o serviço está disponível
+      operationId: healthcheck
+      responses:
+        "200":
+          description: Serviço disponível
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, uptime_seconds, timestamp]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                  uptime_seconds:
+                    type: integer
+                    minimum: 0
+                  timestamp:
+                    type: string
+                    format: date-time
+  /v1/analyze:
+    post:
+      summary: Analisa uma avaliação
+      operationId: analyzeReview
+      parameters:
+        - name: x-request-id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Identificador de correlação opcional.
+        - name: x-client-id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Chave usada para isolar o rate limit.
+        - name: x-mock-scenario
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [success, slow, server-error, rate-limit]
+          description: Força um cenário determinístico para testes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+      responses:
+        "200":
+          description: Avaliação analisada
+          headers:
+            x-request-id:
+              schema:
+                type: string
+            x-ratelimit-limit:
+              schema:
+                type: integer
+            x-ratelimit-remaining:
+              schema:
+                type: integer
+            x-ratelimit-reset:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+        "400":
+          description: JSON ou cenário de teste inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Corpo acima do limite
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Content-Type não suportado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Erro de validação
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit atingido
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Serviço temporariamente indisponível
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Erro interno inesperado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /_admin/reset:
+    post:
+      summary: Reinicia contadores de falha e rate limit
+      operationId: resetMockState
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Contadores reiniciados
+        "401":
+          description: Token inválido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    AnalyzeRequest:
+      type: object
+      additionalProperties: true
+      required: [review_id, text]
+      properties:
+        review_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        company_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        text:
+          type: string
+          minLength: 3
+          maxLength: 2000
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+    Analysis:
+      type: object
+      required: [sentiment, category, confidence, matched_keywords]
+      properties:
+        sentiment:
+          type: string
+          enum: [positive, neutral, negative]
+        category:
+          type: string
+          enum: [delivery, service, food, price, environment, general]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        matched_keywords:
+          type: array
+          items:
+            type: string
+    AnalyzeResponse:
+      type: object
+      required: [request_id, review_id, analysis, processing_time_ms, processed_at]
+      properties:
+        request_id:
+          type: string
+        review_id:
+          type: string
+        analysis:
+          $ref: "#/components/schemas/Analysis"
+        processing_time_ms:
+          type: integer
+          minimum: 0
+        processed_at:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      description: Formato utilizado por todas as respostas de erro da API.
+      required: [error, request_id]
+      properties:
+        request_id:
+          type: string
+          description: Mesmo identificador enviado no header x-request-id.
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNSUPPORTED_MEDIA_TYPE
+                - PAYLOAD_TOO_LARGE
+                - EMPTY_BODY
+                - INVALID_JSON
+                - VALIDATION_ERROR
+                - INVALID_MOCK_SCENARIO
+                - RATE_LIMIT_EXCEEDED
+                - ANALYSIS_SERVICE_UNAVAILABLE
+                - UNAUTHORIZED
+                - NOT_FOUND
+                - INTERNAL_ERROR
+            message:
+              type: string
+            retryable:
+              type: boolean
+            details:
+              description: Contexto adicional opcional, sem formato fixo.
